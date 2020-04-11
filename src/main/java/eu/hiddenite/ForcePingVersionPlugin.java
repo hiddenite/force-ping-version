@@ -1,6 +1,8 @@
 package eu.hiddenite;
 
 import net.md_5.bungee.api.ServerPing;
+import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.event.PreLoginEvent;
 import net.md_5.bungee.api.event.ProxyPingEvent;
 import net.md_5.bungee.api.plugin.Listener;
 import net.md_5.bungee.api.plugin.Plugin;
@@ -17,6 +19,7 @@ import java.nio.file.Files;
 public class ForcePingVersionPlugin extends Plugin implements Listener {
     private String forcedVersionName;
     private int forcedVersionProtocol;
+    private String errorMessage;
 
     @Override
     public void onEnable() {
@@ -35,9 +38,26 @@ public class ForcePingVersionPlugin extends Plugin implements Listener {
         }
     }
 
+    @EventHandler
+    public void onProxyPingEvent(PreLoginEvent event) {
+        if (forcedVersionName != null && !forcedVersionName.isEmpty() && forcedVersionProtocol > 0) {
+            if (event.getConnection().getVersion() != forcedVersionProtocol) {
+                getLogger().info("Login from " + event.getConnection().getSocketAddress().toString() +
+                        " rejected: protocol version " + event.getConnection().getVersion() +
+                        ", expected " + forcedVersionProtocol);
+
+                String message = errorMessage.replace("{VERSION}", forcedVersionName);
+                event.setCancelled(true);
+                event.setCancelReason(TextComponent.fromLegacyText(message));
+            }
+        }
+    }
+
     private void loadConfiguration() {
         if (!getDataFolder().exists()) {
-            getDataFolder().mkdir();
+            if (!getDataFolder().mkdir()) {
+                return;
+            }
         }
 
         File file = new File(getDataFolder(), "config.yml");
@@ -54,6 +74,7 @@ public class ForcePingVersionPlugin extends Plugin implements Listener {
 
             forcedVersionName = configuration.getString("version.name");
             forcedVersionProtocol = configuration.getInt("version.protocol");
+            errorMessage = configuration.getString("error-message");
         } catch (IOException e) {
             e.printStackTrace();
         }
