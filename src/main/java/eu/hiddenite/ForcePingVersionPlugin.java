@@ -27,7 +27,7 @@ public class ForcePingVersionPlugin extends Plugin implements Listener {
 
         getProxy().getPluginManager().registerListener(this, this);
 
-        getLogger().info("Forced ping version: " + forcedVersionName +  " (" + forcedVersionProtocol + ")");
+        getLogger().info("Forced ping version: " + forcedVersionName + " (" + forcedVersionProtocol + ")");
     }
 
     @EventHandler
@@ -35,6 +35,12 @@ public class ForcePingVersionPlugin extends Plugin implements Listener {
         if (forcedVersionName != null && !forcedVersionName.isEmpty() && forcedVersionProtocol > 0) {
             ServerPing ping = event.getResponse();
             ping.setVersion(new ServerPing.Protocol(forcedVersionName, forcedVersionProtocol));
+
+            ServerPing.PlayerInfo[] sample = getProxy().getPlayers().stream()
+                    .map(player -> new ServerPing.PlayerInfo(player.getName(), player.getUniqueId()))
+                    .toArray(ServerPing.PlayerInfo[]::new);
+
+            ping.setPlayers(new ServerPing.Players(ping.getPlayers().getMax(), ping.getPlayers().getOnline(), sample));
         }
     }
 
