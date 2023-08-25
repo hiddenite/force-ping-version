@@ -1,88 +1,107 @@
 package eu.hiddenite;
 
-import net.md_5.bungee.api.ServerPing;
-import net.md_5.bungee.api.chat.TextComponent;
-import net.md_5.bungee.api.event.PreLoginEvent;
-import net.md_5.bungee.api.event.ProxyPingEvent;
-import net.md_5.bungee.api.plugin.Listener;
-import net.md_5.bungee.api.plugin.Plugin;
-import net.md_5.bungee.config.Configuration;
-import net.md_5.bungee.config.ConfigurationProvider;
-import net.md_5.bungee.config.YamlConfiguration;
-import net.md_5.bungee.event.EventHandler;
+import com.google.inject.Inject;
+import com.velocitypowered.api.event.Subscribe;
+import com.velocitypowered.api.event.connection.PreLoginEvent;
+import com.velocitypowered.api.event.proxy.ProxyPingEvent;
+import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.ProxyServer;
+import com.velocitypowered.api.proxy.server.ServerPing;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.spongepowered.configurate.objectmapping.ConfigSerializable;
+import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.logging.Logger;
 
-public class ForcePingVersionPlugin extends Plugin implements Listener {
-    private String forcedVersionName;
-    private int forcedVersionProtocol;
-    private String errorMessage;
+@Plugin(id = "force-ping-version", name = "ForcePingVersion", version = "2.0.0", authors = {"Hiddenite"})
+public class ForcePingVersionPlugin {
+    private final Logger logger;
 
-    @Override
-    public void onEnable() {
-        loadConfiguration();
+    private Configuration config;
 
-        getProxy().getPluginManager().registerListener(this, this);
+    @ConfigSerializable
+    public static class Configuration {
+        public Version version;
+        public String errorMessage;
 
-        getLogger().info("Forced ping version: " + forcedVersionName + " (" + forcedVersionProtocol + ")");
-    }
-
-    @EventHandler
-    public void onProxyPingEvent(ProxyPingEvent event) {
-        if (forcedVersionName != null && !forcedVersionName.isEmpty() && forcedVersionProtocol > 0) {
-            ServerPing ping = event.getResponse();
-            ping.setVersion(new ServerPing.Protocol(forcedVersionName, forcedVersionProtocol));
-
-            ServerPing.PlayerInfo[] sample = getProxy().getPlayers().stream()
-                    .map(player -> new ServerPing.PlayerInfo(player.getName(), player.getUniqueId()))
-                    .toArray(ServerPing.PlayerInfo[]::new);
-
-            ping.setPlayers(new ServerPing.Players(ping.getPlayers().getMax(), ping.getPlayers().getOnline(), sample));
+        @ConfigSerializable
+        public static class Version {
+            public String name;
+            public int protocol;
         }
     }
 
-    @EventHandler
-    public void onProxyPingEvent(PreLoginEvent event) {
-        if (forcedVersionName != null && !forcedVersionName.isEmpty() && forcedVersionProtocol > 0) {
-            if (event.getConnection().getVersion() != forcedVersionProtocol) {
-                getLogger().info("Login from " + event.getConnection().getSocketAddress().toString() +
-                        " rejected: protocol version " + event.getConnection().getVersion() +
-                        ", expected " + forcedVersionProtocol);
+    @Inject
+    public ForcePingVersionPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
+        this.logger = logger;
 
-                String message = errorMessage.replace("{VERSION}", forcedVersionName);
-                event.setCancelled(true);
-                event.setCancelReason(TextComponent.fromLegacyText(message));
+        if (!loadConfiguration(dataDirectory.toFile())) {
+            logger.warning("Failed to load the configuration: the plugin won't do anything.");
+        }
+    }
+
+    @Subscribe
+    public void onPreLogin(PreLoginEvent event) {
+        if (config == null) {
+            return;
+        }
+
+        int protocol = event.getConnection().getProtocolVersion().getProtocol();
+        if (protocol == config.version.protocol) {
+            return;
+        }
+
+        logger.info("Rejected login from " + event.getUsername() + ", protocol version " + protocol + ", expected " + config.version.protocol);
+
+        String message = config.errorMessage.replace("{VERSION}", config.version.name);
+        event.setResult(PreLoginEvent.PreLoginComponentResult.denied(MiniMessage.miniMessage().deserialize(message)));
+    }
+
+    @Subscribe
+    public void onProxyPing(ProxyPingEvent event) {
+        if (config == null) {
+            return;
+        }
+
+        var version = new ServerPing.Version(config.version.protocol, config.version.name);
+        event.setPing(event.getPing().asBuilder().version(version).build());
+    }
+
+    public boolean loadConfiguration(File dataDirectory) {
+        if (!dataDirectory.exists()) {
+            if (!dataDirectory.mkdir()) {
+                logger.warning("Could not create the configuration folder.");
+                return false;
             }
         }
-    }
 
-    private void loadConfiguration() {
-        if (!getDataFolder().exists()) {
-            if (!getDataFolder().mkdir()) {
-                return;
-            }
-        }
-
-        File file = new File(getDataFolder(), "config.yml");
+        File file = new File(dataDirectory, "config.yml");
         if (!file.exists()) {
-            try (InputStream in = getResourceAsStream("config.yml")) {
+            logger.warning("No configuration file found, creating a default one.");
+
+            try (InputStream in = this.getClass().getClassLoader().getResourceAsStream("config.yml")) {
                 Files.copy(in, file.toPath());
-            } catch (IOException e) {
-                e.printStackTrace();
+            } catch (IOException exception) {
+                exception.printStackTrace();
+                return false;
             }
         }
+
+        YamlConfigurationLoader reader = YamlConfigurationLoader.builder().path(dataDirectory.toPath().resolve("config.yml")).build();
 
         try {
-            Configuration configuration = ConfigurationProvider.getProvider(YamlConfiguration.class).load(new File(getDataFolder(), "config.yml"));
-
-            forcedVersionName = configuration.getString("version.name");
-            forcedVersionProtocol = configuration.getInt("version.protocol");
-            errorMessage = configuration.getString("error-message");
-        } catch (IOException e) {
-            e.printStackTrace();
+            config = reader.load().get(Configuration.class);
+        } catch (IOException exception) {
+            exception.printStackTrace();
+            return false;
         }
+
+        return true;
     }
 }

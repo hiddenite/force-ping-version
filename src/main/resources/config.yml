@@ -1,4 +1,4 @@
 version:
-  name: "1.15.2"
-  protocol: 578
-error-message: "§cInvalid game version. Please use §eMinecraft {VERSION}§c instead!"
+  name: "1.20.1"
+  protocol: 763
+error-message: "<red>Invalid game version. Please use <yellow>Minecraft {VERSION}<red> instead!"
