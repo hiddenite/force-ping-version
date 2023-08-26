@@ -6,6 +6,7 @@ import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.proxy.ProxyPingEvent;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.ServerPing;
 import net.kyori.adventure.text.minimessage.MiniMessage;
@@ -17,10 +18,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.logging.Logger;
 
 @Plugin(id = "force-ping-version", name = "ForcePingVersion", version = "2.0.0", authors = {"Hiddenite"})
 public class ForcePingVersionPlugin {
+    private final ProxyServer server;
     private final Logger logger;
 
     private Configuration config;
@@ -39,6 +42,7 @@ public class ForcePingVersionPlugin {
 
     @Inject
     public ForcePingVersionPlugin(ProxyServer server, Logger logger, @DataDirectory Path dataDirectory) {
+        this.server = server;
         this.logger = logger;
 
         if (!loadConfiguration(dataDirectory.toFile())) {
@@ -70,7 +74,11 @@ public class ForcePingVersionPlugin {
         }
 
         var version = new ServerPing.Version(config.version.protocol, config.version.name);
-        event.setPing(event.getPing().asBuilder().version(version).build());
+        event.setPing(event.getPing().asBuilder().samplePlayers(
+                server.getAllPlayers().stream().sorted(Comparator.comparing(Player::getUsername)).map(x ->
+                        new ServerPing.SamplePlayer(x.getUsername(), x.getUniqueId())
+                ).toArray(ServerPing.SamplePlayer[]::new)
+        ).version(version).build());
     }
 
     public boolean loadConfiguration(File dataDirectory) {
